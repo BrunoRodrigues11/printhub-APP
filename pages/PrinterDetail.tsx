@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Printer, PrinterStatus, PrinterType } from '../types';
+import { PrinterStatus, PrinterType, User } from '../types';
 import { StatusBadge } from '../components/StatusBadge';
 import { MapPin, Server, ArrowLeft, Printer as PrinterIcon, Hash, Sliders, CheckSquare, X, Receipt, Link, FileText, QrCode, Globe, Droplets, Image as ImageIcon, Upload, Trash } from 'lucide-react';
+import { apiFetch } from '../services/api'; // Importando a API
 
 interface PrinterDetailProps {
-  printers: Printer[];
-  onUpdateStatus: (id: string, newStatus: PrinterStatus) => void;
+  user: User | null; // Adicionamos o usuário para checar permissões, se necessário
 }
 
 interface LabelSettings {
@@ -22,10 +22,14 @@ interface LabelSettings {
   logo: string | null;
 }
 
-export const PrinterDetail: React.FC<PrinterDetailProps> = ({ printers, onUpdateStatus }) => {
+export const PrinterDetail: React.FC<PrinterDetailProps> = ({ user }) => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [printer, setPrinter] = useState<Printer | undefined>(undefined);
+  
+  // Estado Local para a Impressora
+  const [printer, setPrinter] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   
   // Label Modal State
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -47,29 +51,93 @@ export const PrinterDetail: React.FC<PrinterDetailProps> = ({ printers, onUpdate
     logo: null
   });
 
-  useEffect(() => {
-    const found = printers.find(p => p.id === id);
-    setPrinter(found);
-  }, [id, printers]);
+  // ==========================================
+  // BUSCANDO DADOS DA API
+  // ==========================================
+  const fetchPrinterDetails = async () => {
+    setIsLoading(true);
+    try {
+      // Busca a impressora e a lista de sites em paralelo
+      const [printerData, sitesData] = await Promise.all([
+        apiFetch(`/printers/${id}`),
+        apiFetch('/sites')
+      ]);
 
-  if (!printer) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-        <div className="text-center">
-          <h2 className="text-xl font-bold text-slate-800">Impressora não encontrada</h2>
-          <p className="text-slate-500 mt-2">O QR Code escaneado não corresponde a um equipamento cadastrado.</p>
-          <button onClick={() => navigate('/')} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg">
-            Voltar ao Painel
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    onUpdateStatus(printer.id, e.target.value as PrinterStatus);
+      if (printerData) {
+        // Encontra o nome do site
+        const siteObj = sitesData.find((s: any) => s.id === printerData.site_id);
+        
+        // Mapeia para o formato que o Frontend espera
+        setPrinter({
+          ...printerData,
+          serialNumber: printerData.serial_number,
+          assetId: printerData.asset_id,
+          site: siteObj ? siteObj.name : 'Sem Unidade',
+          siteId: printerData.site_id,
+          ipAddress: printerData.ip_address,
+          queueName: printerData.queue_name,
+          tonerCode: printerData.toner_code,
+          lastUpdated: printerData.last_updated
+        });
+      }
+    } catch (error) {
+      console.error("Erro ao buscar detalhes da impressora:", error);
+      // Se não achar (404), o estado printer continuará null
+    } finally {
+      setIsLoading(false);
+    }
   };
 
+  useEffect(() => {
+    if (id) {
+      fetchPrinterDetails();
+    }
+  }, [id]);
+
+  // ==========================================
+  // ATUALIZANDO STATUS NA API
+  // ==========================================
+  const handleStatusChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newStatus = e.target.value as PrinterStatus;
+    
+    // Atualização otimista na UI (muda na hora)
+    const oldStatus = printer.status;
+    setPrinter((prev: any) => ({ ...prev, status: newStatus }));
+    setIsUpdatingStatus(true);
+
+    try {
+      // Como a API de update pede o objeto inteiro, repassamos os dados mapeados para snake_case
+      const updatePayload = {
+        name: printer.name,
+        type: printer.type,
+        model: printer.model,
+        manufacturer: printer.manufacturer,
+        serial_number: printer.serialNumber,
+        asset_id: printer.assetId,
+        site_id: printer.siteId,
+        location: printer.location,
+        ip_address: printer.ipAddress,
+        queue_name: printer.queueName,
+        toner_code: printer.tonerCode,
+        status: newStatus,
+        notes: printer.notes
+      };
+
+      await apiFetch(`/printers/${id}`, 'PUT', updatePayload);
+      
+      // Busca os dados atualizados para garantir que o "last_updated" venha fresco do banco
+      await fetchPrinterDetails();
+    } catch (error: any) {
+      // Se der erro na API, desfazemos a alteração otimista
+      alert('Erro ao atualizar status: ' + error.message);
+      setPrinter((prev: any) => ({ ...prev, status: oldStatus }));
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
+
+  // Helpers de Interface
   const toggleLabelSetting = (key: keyof LabelSettings) => {
     setLabelSettings(prev => ({ ...prev, [key]: !prev[key] }));
   };
@@ -160,15 +228,43 @@ export const PrinterDetail: React.FC<PrinterDetailProps> = ({ printers, onUpdate
 
   // Logic for QR Code Content
   let qrData = '';
-  if (qrType === 'LINK') {
-    qrData = window.location.href;
-  } else if (qrType === 'INFO') {
-    qrData = `Nome: ${printer.name}\nModelo: ${printer.model}\nIP: ${printer.ipAddress || 'N/A'}\nSérie: ${printer.serialNumber}\nPatrimônio: ${printer.assetId}`;
-  } else {
-    qrData = customQrLink || 'https://';
+  if (printer) {
+    if (qrType === 'LINK') {
+      qrData = window.location.href;
+    } else if (qrType === 'INFO') {
+      qrData = `Nome: ${printer.name}\nModelo: ${printer.model}\nIP: ${printer.ipAddress || 'N/A'}\nSérie: ${printer.serialNumber}\nPatrimônio: ${printer.assetId}`;
+    } else {
+      qrData = customQrLink || 'https://';
+    }
   }
     
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qrData)}`;
+
+  // Telas de Feedback (Loading ou Erro)
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-slate-500 font-medium">Buscando dados do equipamento...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!printer) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+        <div className="text-center bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
+          <h2 className="text-xl font-bold text-slate-800">Impressora não encontrada</h2>
+          <p className="text-slate-500 mt-2 max-w-sm">O QR Code escaneado não corresponde a um equipamento cadastrado ou a impressora foi removida do sistema.</p>
+          <button onClick={() => navigate('/')} className="mt-6 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 transition text-white rounded-lg font-medium">
+            Voltar ao Painel Principal
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 pb-12">
@@ -211,7 +307,7 @@ export const PrinterDetail: React.FC<PrinterDetailProps> = ({ printers, onUpdate
              </div>
 
              <p className="text-xs text-slate-400 mt-4">
-               Última atualização: {new Date(printer.lastUpdated).toLocaleString('pt-BR')}
+                Última atualização: {new Date(printer.lastUpdated).toLocaleString('pt-BR')}
              </p>
           </div>
         </div>
@@ -219,16 +315,22 @@ export const PrinterDetail: React.FC<PrinterDetailProps> = ({ printers, onUpdate
         {/* Quick Actions / Status Update */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
            <label className="block text-sm font-medium text-slate-700 mb-2">Atualizar Status</label>
-           <div className="flex gap-2">
+           <div className="flex gap-2 relative">
              <select 
                 value={printer.status}
                 onChange={handleStatusChange}
-                className="block w-full rounded-lg border-slate-300 bg-slate-50 border px-3 py-2.5 text-slate-900 focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                disabled={isUpdatingStatus}
+                className="block w-full rounded-lg border-slate-300 bg-slate-50 border px-3 py-2.5 text-slate-900 focus:border-blue-500 focus:ring-blue-500 sm:text-sm disabled:opacity-50"
              >
                 {Object.values(PrinterStatus).map((s) => (
                   <option key={s} value={s}>{s}</option>
                 ))}
              </select>
+             {isUpdatingStatus && (
+               <div className="absolute right-10 top-3">
+                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+               </div>
+             )}
            </div>
            <p className="text-xs text-slate-500 mt-2">
              * Alterações são registradas automaticamente no sistema central.
@@ -257,9 +359,9 @@ export const PrinterDetail: React.FC<PrinterDetailProps> = ({ printers, onUpdate
                   <span className="text-sm text-slate-500">IP:</span>
                   <span className="text-sm font-mono text-slate-700">{printer.ipAddress || 'N/A'}</span>
                 </div>
-                <div className="flex justify-between items-start">
+                <div className="flex justify-between items-start mt-1">
                   <span className="text-sm text-slate-500">Fila:</span>
-                  <span className="text-sm font-mono text-slate-700 break-all text-right ml-2">{printer.queueName}</span>
+                  <span className="text-sm font-mono text-slate-700 break-all text-right ml-2">{printer.queueName || 'N/A'}</span>
                 </div>
              </div>
           </div>
@@ -291,7 +393,7 @@ export const PrinterDetail: React.FC<PrinterDetailProps> = ({ printers, onUpdate
         </div>
       </div>
 
-      {/* Label Generator Modal */}
+      {/* Label Generator Modal (Mantido Igual) */}
       {isLabelModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
@@ -508,10 +610,8 @@ export const PrinterDetail: React.FC<PrinterDetailProps> = ({ printers, onUpdate
 
                 {/* Live Preview */}
                 <div className="lg:col-span-2 bg-slate-100 rounded-xl flex items-center justify-center border border-slate-200 min-h-[300px] overflow-hidden relative">
-                   
                    <p className="absolute top-4 left-4 text-xs font-bold text-slate-400 uppercase tracking-wide z-10">Preview</p>
 
-                   {/* The actual content to print is generated here but kept clean */}
                    <div 
                      id="printable-label-content"
                      className="bg-white p-6 rounded-lg shadow-md border border-slate-200 flex flex-row items-center space-x-6"
@@ -519,7 +619,6 @@ export const PrinterDetail: React.FC<PrinterDetailProps> = ({ printers, onUpdate
                        transform: `scale(${labelSettings.scale})`,
                        transformOrigin: 'center center',
                        transition: 'transform 0.2s',
-                       // Fix width to ensure it doesn't collapse weirdly in print window
                        minWidth: '350px',
                        maxWidth: '500px'
                      }}
