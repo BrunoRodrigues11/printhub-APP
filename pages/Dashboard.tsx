@@ -64,14 +64,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ onLogout, user }) => {
     fetchData();
   }, []);
 
-  // 1. Filter by User Site (Security/Access Level)
+// 1. Filter by User Site (Security/Access Level)
   const visiblePrinters = useMemo(() => {
     if (!user) return [];
-    // Ajustado para olhar a 'role' vinda do backend ('Admin')
-    if (user.role === 'Admin' || user.role === UserRole.ADMIN) return printers;
     
-    // Filtra pelo site_id que veio do token do usuário
-    return printers.filter(p => p.siteId === user.site_id);
+    const isAdmin = user.role === 'Admin' || user.role === UserRole.ADMIN;
+    if (isAdmin) return printers;
+    
+    const userSiteId = user.siteId || user.site_id;
+    
+    // Retorna apenas as impressoras que pertencem à unidade do Analista/User
+    return printers.filter(p => p.siteId === userSiteId);
   }, [printers, user]);
 
   // 2. Calculate Statistics based on visible printers

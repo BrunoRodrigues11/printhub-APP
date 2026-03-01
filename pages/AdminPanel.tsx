@@ -71,21 +71,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout, user }) => {
     logo: null
   });
 
-  // ==========================================
-  // BUSCANDO DADOS DA API
+// ==========================================
+  // BUSCANDO DADOS DA API (CORRIGIDO)
   // ==========================================
   const loadData = async () => {
     setIsLoading(true);
     try {
-      // Busca sites primeiro, pois as impressoras e usuários dependem deles para mostrar o nome
+      // 1. Busca sites primeiro, pois as impressoras precisam deles
       const sitesData = await apiFetch('/sites');
       setSites(sitesData);
 
-      // Busca impressoras e usuários
-      const [printersData, usersData] = await Promise.all([
-        apiFetch('/printers'),
-        apiFetch('/users')
-      ]);
+      // 2. Busca impressoras (Analista e Admin têm acesso a essa rota)
+      const printersData = await apiFetch('/printers');
 
       // Mapeia as impressoras para o formato do Frontend
       const mappedPrinters = printersData.map((p: any) => {
@@ -97,7 +94,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout, user }) => {
           model: p.model,
           manufacturer: p.manufacturer,
           serialNumber: p.serial_number,
-          assetId: p.asset_id,
+          assetId: p.asset_id, // <--- O RI é mapeado aqui! Verifique se está escrito assim
           site: siteObj ? siteObj.name : 'Sem Unidade',
           siteId: p.site_id,
           location: p.location,
@@ -110,20 +107,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout, user }) => {
       });
       setPrinters(mappedPrinters);
 
-      // Mapeia os usuários para o formato do Frontend
-      const mappedUsers = usersData.map((u: any) => {
-        const siteObj = sitesData.find((s: any) => s.id === u.site_id);
-        return {
-          id: u.id,
-          name: u.name,
-          email: u.email,
-          role: u.role,
-          site: siteObj ? siteObj.name : 'Todas',
-          siteId: u.site_id,
-          lastLogin: u.last_login
-        };
-      });
-      setUsers(mappedUsers);
+      // 3. Busca os usuários APENAS se for Admin
+      const canManageUsers = user?.role === 'Admin' || user?.role === UserRole.ADMIN;
+      
+      if (canManageUsers) {
+        const usersData = await apiFetch('/users');
+        const mappedUsers = usersData.map((u: any) => {
+          const siteObj = sitesData.find((s: any) => s.id === u.site_id);
+          return {
+            id: u.id,
+            name: u.name,
+            email: u.email,
+            role: u.role,
+            site: siteObj ? siteObj.name : 'Todas',
+            siteId: u.site_id,
+            lastLogin: u.last_login
+          };
+        });
+        setUsers(mappedUsers);
+      }
 
     } catch (error) {
       console.error("Erro ao carregar dados do admin:", error);
@@ -138,13 +140,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout, user }) => {
   }, []);
 
 
-  const filteredPrinters = useMemo(() => {
+const filteredPrinters = useMemo(() => {
     return printers.filter(p => {
-      // Ajuste na verificação de Role
-      if (user?.role !== 'Admin' && user?.role !== UserRole.ADMIN && user?.siteId && p.siteId !== user.siteId) {
+      // 1. Verifica se o usuário é Admin
+      const isAdmin = user?.role === 'Admin' || user?.role === UserRole.ADMIN;
+      
+      // 2. Pega o ID da unidade do usuário (garantindo que lê tanto snake_case quanto camelCase)
+      const userSiteId = user?.siteId || user?.site_id;
+
+      // 3. TRAVA DE SEGURANÇA: Se NÃO for Admin e a impressora não for da mesma unidade, esconde!
+      if (!isAdmin && p.siteId !== userSiteId) {
         return false;
       }
 
+      // 4. Filtro da barra de pesquisa
       return (
         p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
         p.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
