@@ -47,8 +47,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onLogout, user }) => {
             ...p,
             serialNumber: p.serial_number, 
             ipAddress: p.ip_address,
-            site: siteObj ? siteObj.name : 'Sem Unidade', // Usado para agrupar na tela
-            siteId: p.site_id // Guardamos o ID original caso precise
+            assetId: p.asset_id,     // <--- BASTA ADICIONAR ESTA LINHA AQUI!
+            site: siteObj ? siteObj.name : 'Sem Unidade', 
+            siteId: p.site_id
           };
         });
 

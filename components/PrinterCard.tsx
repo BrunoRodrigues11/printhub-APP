@@ -1,7 +1,7 @@
 import React from 'react';
 import { Printer, PrinterType } from '../types';
 import { StatusBadge } from './StatusBadge';
-import { MapPin, Printer as PrinterIcon, QrCode, ScrollText, Receipt } from 'lucide-react';
+import { MapPin, Printer as PrinterIcon, QrCode, Receipt } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 interface PrinterCardProps {
@@ -14,12 +14,13 @@ export const PrinterCard: React.FC<PrinterCardProps> = ({ printer }) => {
   return (
     <div 
       className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow duration-200 border border-slate-200 overflow-hidden cursor-pointer group"
-      onClick={() => navigate(`/printer/${printer.id}`)}
+      onClick={() => navigate(`/printer/${printer.id}`)} // Aqui ele usa o UUID do PostgreSQL perfeitamente
     >
       <div className="p-5">
         <div className="flex justify-between items-start mb-4">
           <div className="flex items-center space-x-3">
             <div className="p-2.5 bg-blue-50 rounded-lg text-blue-600 group-hover:bg-blue-100 transition-colors">
+              {/* O mapeamento para Térmica/Papel vindo do enum do banco se encaixa aqui */}
               {printer.type === PrinterType.THERMAL ? <Receipt size={24} /> : <PrinterIcon size={24} />}
             </div>
             <div>
