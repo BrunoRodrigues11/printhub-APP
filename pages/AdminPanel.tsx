@@ -1013,8 +1013,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout, user }) => {
         onSubmit={handleSiteFormSubmit}
         initialData={editingSite}
       />
-
-      {/* Batch Print Modal (Restante do código mantido idêntico) */}
+      
       {isBatchPrintModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col">

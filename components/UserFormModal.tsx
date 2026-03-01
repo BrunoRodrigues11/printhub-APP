@@ -5,7 +5,7 @@ import { X, Save } from 'lucide-react';
 interface UserFormModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (data: Omit<User, 'id' | 'lastLogin'>) => void;
+  onSubmit: (data: any) => void; // Tipo ajustado temporariamente para suportar o siteId
   initialData?: User | null;
   sites: Site[];
 }
@@ -21,25 +21,25 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({
     name: '',
     email: '',
     role: UserRole.USER,
-    site: '',
+    siteId: '', // <-- Modificado de 'site' para 'siteId' para o banco de dados
     password: ''
   });
 
   useEffect(() => {
     if (initialData) {
       setFormData({
-        name: initialData.name,
-        email: initialData.email,
-        role: initialData.role,
-        site: initialData.site || '',
-        password: initialData.password || ''
+        name: initialData.name || '',
+        email: initialData.email || '',
+        role: initialData.role || UserRole.USER,
+        siteId: initialData.siteId || '', // <-- Carrega o siteId do usuário
+        password: '' // Sempre vem vazio na edição por segurança (backend resolve)
       });
     } else {
       setFormData({
         name: '',
         email: '',
         role: UserRole.USER,
-        site: '',
+        siteId: '', // <-- Limpa o ID
         password: ''
       });
     }
@@ -47,8 +47,15 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit(formData);
-    onClose();
+    
+    // Se o usuário é ADMIN, forçamos o siteId para vazio (null no banco) pois ele vê todas
+    const finalData = {
+      ...formData,
+      siteId: formData.role === UserRole.ADMIN ? '' : formData.siteId
+    };
+
+    onSubmit(finalData);
+    // Deixamos o AdminPanel fechar após o sucesso para melhor UX
   };
 
   if (!isOpen) return null;
@@ -109,26 +116,27 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({
               value={formData.role}
               onChange={e => setFormData({ ...formData, role: e.target.value as UserRole })}
             >
-              <option value={UserRole.USER}>Usuário</option>
-              <option value={UserRole.ANALYST}>Analista</option>
-              <option value={UserRole.ADMIN}>Administrador</option>
+              <option value="User">Usuário</option>
+              <option value="Analista">Analista</option>
+              <option value="Admin">Administrador</option>
             </select>
           </div>
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Unidade Vinculada</label>
             <select
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition bg-white"
-              value={formData.site}
-              onChange={e => setFormData({ ...formData, site: e.target.value })}
-              disabled={formData.role === UserRole.ADMIN}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition bg-white disabled:opacity-50 disabled:bg-slate-50"
+              value={formData.siteId} // <-- Linkado no formData.siteId
+              onChange={e => setFormData({ ...formData, siteId: e.target.value })}
+              required={formData.role !== 'Admin'} // Só exige se não for admin
+              disabled={formData.role === 'Admin'}
             >
               <option value="">Selecione uma unidade...</option>
               {sites.map(site => (
-                <option key={site.id} value={site.name}>{site.name}</option>
+                <option key={site.id} value={site.id}>{site.name}</option> // <-- Passa a ID para o valor do select
               ))}
             </select>
-            {formData.role === UserRole.ADMIN && (
+            {formData.role === 'Admin' && (
               <p className="text-xs text-slate-500 mt-1">Administradores têm acesso a todas as unidades.</p>
             )}
           </div>
