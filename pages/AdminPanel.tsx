@@ -31,7 +31,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout, user }) => {
   const [activeTab, setActiveTab] = useState<'printers' | 'users' | 'sites'>('printers');
   const [searchTerm, setSearchTerm] = useState('');
   
-  // Estado Local (agora vem da API)
+  // Estado Local para Impressoras, Usuários e Unidades
   const [printers, setPrinters] = useState<Printer[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
@@ -234,7 +234,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout, user }) => {
       manufacturer: data.manufacturer,
       serial_number: data.serialNumber,
       asset_id: data.assetId,
-      site_id: data.siteId, // Importante: O Modal deve retornar o ID do site
+      site_id: data.siteId || null, // Importante: O Modal deve retornar o ID do site. Se for null ou undefined, enviamos null para a API.
       location: data.location,
       ip_address: data.ipAddress,
       queue_name: data.queueName,
@@ -288,7 +288,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout, user }) => {
       name: data.name,
       email: data.email,
       role: data.role,
-      site_id: data.siteId,
+      site_id: data.siteId || null, // O Modal deve retornar o ID do site. Se for null ou undefined, enviamos null para a API.
       password: data.password // Backend cuidará do hash no POST ou ignorará no PUT se vazio
     };
 
