@@ -1,0 +1,5 @@
+{
+  "name": "PrintHub - Gestão Visual",
+  "description": "Sistema de gestão visual de impressoras com acesso via QR Code e diagnósticos via IA.",
+  "requestFramePermissions": []
+}
