@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Printer as PrinterIcon, Lock, Mail, ArrowRight } from 'lucide-react';
 import { User } from '../types';
 import { MOCK_USERS } from '../constants';
+import { apiFetch } from '../services/api';
 
 interface LoginProps {
   onLogin: (user: User) => void;
@@ -15,33 +16,27 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
 
-    // Simulate API delay
-    setTimeout(() => {
-      // Find user in the MOCK_USERS array (which is passed as prop or imported)
-      // In a real app, this would be an API call
-      const user = MOCK_USERS.find(u => u.email.toLowerCase() === email.toLowerCase());
+    try {
+      // Olha como ficou simples! Não precisamos passar headers, url completa, nem stringify
+      const data = await apiFetch('/users/login', 'POST', { email, password });
+
+      // Salva o Token JWT e os dados
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+
+      onLogin(data.user);
+      navigate('/');
       
-      if (user) {
-        // Check password: use user.password if set, otherwise fallback to '123456'
-        const isPasswordValid = user.password ? user.password === password : password === '123456';
-        
-        if (isPasswordValid) {
-          onLogin(user);
-          navigate('/');
-        } else {
-          setError('Senha incorreta.');
-          setIsLoading(false);
-        }
-      } else {
-        setError('Usuário não encontrado.');
-        setIsLoading(false);
-      }
-    }, 800);
+    } catch (err: any) {
+      setError(err.message || 'Falha na conexão com o servidor.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -140,27 +135,6 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
               </button>
             </div>
           </form>
-
-          <div className="mt-6">
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-slate-300" />
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white text-slate-500">
-                  Credenciais de Teste
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-6 grid grid-cols-1 gap-3">
-              <div className="text-xs text-center text-slate-500 bg-slate-50 p-3 rounded-lg border border-slate-200">
-                <p><strong>Admin:</strong> admin@printhub.com / 123456</p>
-                <p className="mt-1"><strong>Analista:</strong> analista@printhub.com / 123456</p>
-                <p className="mt-1"><strong>User:</strong> operador@printhub.com / 123456</p>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
