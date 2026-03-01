@@ -5,7 +5,7 @@ import { X, Droplets } from 'lucide-react';
 interface PrinterFormModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (data: Omit<Printer, 'id' | 'lastUpdated'>) => void;
+  onSubmit: (data: any) => void; // Tipo any temporário para flexibilidade com a API
   initialData?: Printer | null;
   sites: Site[];
 }
@@ -24,7 +24,7 @@ export const PrinterFormModal: React.FC<PrinterFormModalProps> = ({
     type: PrinterType.PAPER,
     serialNumber: '',
     assetId: '',
-    site: '',
+    siteId: '', // <-- Trocado 'site' por 'siteId' para mandar para o banco
     location: '',
     ipAddress: '',
     queueName: '',
@@ -36,18 +36,18 @@ export const PrinterFormModal: React.FC<PrinterFormModalProps> = ({
   useEffect(() => {
     if (initialData) {
       setFormData({
-        name: initialData.name,
-        manufacturer: initialData.manufacturer,
-        model: initialData.model,
+        name: initialData.name || '',
+        manufacturer: initialData.manufacturer || '',
+        model: initialData.model || '',
         type: initialData.type || PrinterType.PAPER,
-        serialNumber: initialData.serialNumber,
-        assetId: initialData.assetId,
-        site: initialData.site || '',
-        location: initialData.location,
+        serialNumber: initialData.serialNumber || '',
+        assetId: initialData.assetId || '',
+        siteId: initialData.siteId || '', // <-- Carrega o siteId na edição
+        location: initialData.location || '',
         ipAddress: initialData.ipAddress || '',
-        queueName: initialData.queueName,
+        queueName: initialData.queueName || '',
         tonerCode: initialData.tonerCode || '',
-        status: initialData.status,
+        status: initialData.status || PrinterStatus.ONLINE,
         notes: initialData.notes || ''
       });
     } else {
@@ -59,6 +59,7 @@ export const PrinterFormModal: React.FC<PrinterFormModalProps> = ({
         type: PrinterType.PAPER,
         serialNumber: '',
         assetId: '',
+        siteId: '', // <-- Limpa o siteId para novo cadastro
         location: '',
         ipAddress: '',
         queueName: '',
@@ -74,7 +75,7 @@ export const PrinterFormModal: React.FC<PrinterFormModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSubmit(formData);
-    onClose();
+    // Não fechamos aqui, deixamos o AdminPanel fechar se o salvamento der certo
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -130,15 +131,18 @@ export const PrinterFormModal: React.FC<PrinterFormModalProps> = ({
               <label className="block text-sm font-medium text-slate-700 mb-1">Patrimônio / Asset ID *</label>
               <input required name="assetId" value={formData.assetId} onChange={handleChange} className={inputClasses} />
             </div>
+            
+            {/* O Select da Unidade corrigido */}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Localidade / Unidade *</label>
-              <select required name="site" value={formData.site} onChange={handleChange} className={inputClasses}>
+              <select required name="siteId" value={formData.siteId} onChange={handleChange} className={inputClasses}>
                 <option value="">Selecione...</option>
                 {sites.map(site => (
-                  <option key={site.id} value={site.name}>{site.name}</option>
+                  <option key={site.id} value={site.id}>{site.name}</option> 
                 ))}
               </select>
             </div>
+            
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Endereço IP</label>
               <input name="ipAddress" value={formData.ipAddress} onChange={handleChange} className={inputClasses} placeholder="192.168.x.x" />
@@ -166,7 +170,7 @@ export const PrinterFormModal: React.FC<PrinterFormModalProps> = ({
             </div>
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-slate-700 mb-1">Nome da Fila</label>
-              <input required name="queueName" value={formData.queueName} onChange={handleChange} className={inputClasses} placeholder="\\server\printer" />
+              <input name="queueName" value={formData.queueName} onChange={handleChange} className={inputClasses} placeholder="\\server\printer" />
             </div>
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-slate-700 mb-1">Notas / Observações</label>

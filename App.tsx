@@ -4,11 +4,10 @@ import { Dashboard } from './pages/Dashboard';
 import { PrinterDetail } from './pages/PrinterDetail';
 import { AdminPanel } from './pages/AdminPanel';
 import { Login } from './pages/Login';
-import { MOCK_PRINTERS, MOCK_USERS, MOCK_SITES } from './constants';
-import { Printer, PrinterStatus, User, UserRole, Site } from './types';
+import { User } from './types';
 
 // Protected Route Component
-const ProtectedRoute = ({ children, user }: { children: JSX.Element, user: User | null }) => {
+const ProtectedRoute = ({ children, user }: { children: React.ReactElement, user: User | null }) => {
   const location = useLocation();
   if (!user) {
     return <Navigate to="/login" state={{ from: location }} replace />;
@@ -19,130 +18,37 @@ const ProtectedRoute = ({ children, user }: { children: JSX.Element, user: User 
 function App() {
   // Auth State
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isInitializing, setIsInitializing] = useState(true);
 
-  // In a real app, this would be fetched from an API
-  const [printers, setPrinters] = useState<Printer[]>(MOCK_PRINTERS);
-  const [users, setUsers] = useState<User[]>(MOCK_USERS);
-  const [sites, setSites] = useState<Site[]>(MOCK_SITES);
-
-  // Check for stored session on mount
+  // Verifica se o usuário já estava logado ao abrir a página
   useEffect(() => {
-    const storedUser = localStorage.getItem('printhub_user');
-    if (storedUser) {
+    // Agora buscamos a chave 'user' que configuramos lá no Login.tsx
+    const storedUser = localStorage.getItem('user');
+    const token = localStorage.getItem('token');
+    
+    if (storedUser && token) {
       setCurrentUser(JSON.parse(storedUser));
     }
+    
+    setIsInitializing(false); // Terminou de checar
   }, []);
 
   const handleLogin = (user: User) => {
     setCurrentUser(user);
-    localStorage.setItem('printhub_user', JSON.stringify(user));
+    // A gravação no localStorage já está sendo feita lá dentro do Login.tsx
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
-    localStorage.removeItem('printhub_user');
+    // Limpamos os dados da sessão
+    localStorage.removeItem('user');
+    localStorage.removeItem('token');
   };
 
-  // Quick status update for the Hub view
-  const handleUpdateStatus = (id: string, newStatus: PrinterStatus) => {
-    setPrinters(prev => prev.map(p => {
-      if (p.id === id) {
-        return {
-          ...p,
-          status: newStatus,
-          lastUpdated: new Date().toISOString()
-        };
-      }
-      return p;
-    }));
-  };
-
-  // CRUD: Create Printer
-  const handleAddPrinter = (data: Omit<Printer, 'id' | 'lastUpdated'>) => {
-    const newPrinter: Printer = {
-      ...data,
-      id: `prt-${Date.now().toString().slice(-6)}`, // Generate simple ID
-      lastUpdated: new Date().toISOString()
-    };
-    setPrinters(prev => [...prev, newPrinter]);
-  };
-
-  // CRUD: Update Printer
-  const handleEditPrinter = (id: string, data: Omit<Printer, 'id' | 'lastUpdated'>) => {
-    setPrinters(prev => prev.map(p => {
-      if (p.id === id) {
-        return {
-          ...p,
-          ...data,
-          lastUpdated: new Date().toISOString()
-        };
-      }
-      return p;
-    }));
-  };
-
-  // CRUD: Delete Printer
-  const handleDeletePrinter = (id: string) => {
-    setPrinters(prev => prev.filter(p => p.id !== id));
-  };
-
-  // CRUD: Create User
-  const handleAddUser = (data: Omit<User, 'id' | 'lastLogin'>) => {
-    const newUser: User = {
-      ...data,
-      id: `usr-${Date.now().toString().slice(-6)}`,
-      lastLogin: undefined,
-      password: data.password || '123456' // Default password if not provided
-    };
-    setUsers(prev => [...prev, newUser]);
-  };
-
-  // CRUD: Update User
-  const handleEditUser = (id: string, data: Omit<User, 'id' | 'lastLogin'>) => {
-    setUsers(prev => prev.map(u => {
-      if (u.id === id) {
-        // If password is empty string (not changed), keep the old one
-        const { password, ...otherData } = data;
-        const finalPassword = password ? password : u.password;
-        
-        return {
-          ...u,
-          ...otherData,
-          password: finalPassword
-        };
-      }
-      return u;
-    }));
-  };
-
-  // CRUD: Delete User
-  const handleDeleteUser = (id: string) => {
-    setUsers(prev => prev.filter(u => u.id !== id));
-  };
-
-  // CRUD: Create Site
-  const handleAddSite = (data: Omit<Site, 'id'>) => {
-    const newSite: Site = {
-      ...data,
-      id: `site-${Date.now().toString().slice(-6)}`
-    };
-    setSites(prev => [...prev, newSite]);
-  };
-
-  // CRUD: Update Site
-  const handleEditSite = (id: string, data: Omit<Site, 'id'>) => {
-    setSites(prev => prev.map(s => {
-      if (s.id === id) {
-        return { ...s, ...data };
-      }
-      return s;
-    }));
-  };
-
-  // CRUD: Delete Site
-  const handleDeleteSite = (id: string) => {
-    setSites(prev => prev.filter(s => s.id !== id));
-  };
+  // Evita que a tela de Login pisque rapidamente antes de ler o localStorage
+  if (isInitializing) {
+    return <div className="min-h-screen bg-slate-50 flex items-center justify-center">Carregando...</div>;
+  }
 
   return (
     <HashRouter>
@@ -153,7 +59,8 @@ function App() {
           path="/" 
           element={
             <ProtectedRoute user={currentUser}>
-              <Dashboard printers={printers} onLogout={handleLogout} user={currentUser} />
+              {/* O Dashboard agora busca os próprios dados! */}
+              <Dashboard onLogout={handleLogout} user={currentUser} />
             </ProtectedRoute>
           } 
         />
@@ -162,21 +69,10 @@ function App() {
           path="/admin" 
           element={
             <ProtectedRoute user={currentUser}>
+              {/* Deixamos o AdminPanel limpo. A lógica CRUD vai morar dentro dele agora. */}
               <AdminPanel 
-                printers={printers} 
-                onAddPrinter={handleAddPrinter}
-                onEditPrinter={handleEditPrinter}
-                onDeletePrinter={handleDeletePrinter}
-                users={users}
-                onAddUser={handleAddUser}
-                onEditUser={handleEditUser}
-                onDeleteUser={handleDeleteUser}
-                sites={sites}
-                onAddSite={handleAddSite}
-                onEditSite={handleEditSite}
-                onDeleteSite={handleDeleteSite}
-                onLogout={handleLogout}
-                user={currentUser}
+                onLogout={handleLogout} 
+                user={currentUser} 
               />
             </ProtectedRoute>
           } 
@@ -186,7 +82,8 @@ function App() {
           path="/printer/:id" 
           element={
             <ProtectedRoute user={currentUser}>
-              <PrinterDetail printers={printers} onUpdateStatus={handleUpdateStatus} />
+              {/* O Detalhe da impressora também buscará os dados da API pelo ID */}
+              <PrinterDetail user={currentUser} />
             </ProtectedRoute>
           } 
         />

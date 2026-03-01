@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Printer, PrinterStatus, PrinterType, User, UserRole, Site } from '../types';
 import { StatusBadge } from '../components/StatusBadge';
 import { PrinterFormModal } from '../components/PrinterFormModal';
@@ -6,20 +6,9 @@ import { UserFormModal } from '../components/UserFormModal';
 import { SiteFormModal } from '../components/SiteFormModal';
 import { Trash2, Edit2, Plus, ArrowLeft, Search, QrCode, Printer as PrinterIcon, CheckSquare, X, Sliders, Link, FileText, Globe, Upload, Image as ImageIcon, Trash, CheckCircle, Users, LayoutGrid, LogOut, MapPin } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { apiFetch } from '../services/api'; // Importando a API
 
 interface AdminPanelProps {
-  printers: Printer[];
-  onAddPrinter: (data: Omit<Printer, 'id' | 'lastUpdated'>) => void;
-  onEditPrinter: (id: string, data: Omit<Printer, 'id' | 'lastUpdated'>) => void;
-  onDeletePrinter: (id: string) => void;
-  users: User[];
-  onAddUser: (data: Omit<User, 'id' | 'lastLogin'>) => void;
-  onEditUser: (id: string, data: Omit<User, 'id' | 'lastLogin'>) => void;
-  onDeleteUser: (id: string) => void;
-  sites: Site[];
-  onAddSite: (data: Omit<Site, 'id'>) => void;
-  onEditSite: (id: string, data: Omit<Site, 'id'>) => void;
-  onDeleteSite: (id: string) => void;
   onLogout: () => void;
   user: User | null;
 }
@@ -37,16 +26,17 @@ interface LabelSettings {
   logo: string | null;
 }
 
-export const AdminPanel: React.FC<AdminPanelProps> = ({ 
-  printers, onAddPrinter, onEditPrinter, onDeletePrinter,
-  users, onAddUser, onEditUser, onDeleteUser,
-  sites, onAddSite, onEditSite, onDeleteSite,
-  onLogout, user
-}) => {
+export const AdminPanel: React.FC<AdminPanelProps> = ({ onLogout, user }) => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'printers' | 'users' | 'sites'>('printers');
   const [searchTerm, setSearchTerm] = useState('');
   
+  // Estado Local (agora vem da API)
+  const [printers, setPrinters] = useState<Printer[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [sites, setSites] = useState<Site[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
   // Printer Modal State
   const [isPrinterModalOpen, setIsPrinterModalOpen] = useState(false);
   const [editingPrinter, setEditingPrinter] = useState<Printer | null>(null);
@@ -81,10 +71,77 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     logo: null
   });
 
+  // ==========================================
+  // BUSCANDO DADOS DA API
+  // ==========================================
+  const loadData = async () => {
+    setIsLoading(true);
+    try {
+      // Busca sites primeiro, pois as impressoras e usuários dependem deles para mostrar o nome
+      const sitesData = await apiFetch('/sites');
+      setSites(sitesData);
+
+      // Busca impressoras e usuários
+      const [printersData, usersData] = await Promise.all([
+        apiFetch('/printers'),
+        apiFetch('/users')
+      ]);
+
+      // Mapeia as impressoras para o formato do Frontend
+      const mappedPrinters = printersData.map((p: any) => {
+        const siteObj = sitesData.find((s: any) => s.id === p.site_id);
+        return {
+          id: p.id,
+          name: p.name,
+          type: p.type,
+          model: p.model,
+          manufacturer: p.manufacturer,
+          serialNumber: p.serial_number,
+          assetId: p.asset_id,
+          site: siteObj ? siteObj.name : 'Sem Unidade',
+          siteId: p.site_id,
+          location: p.location,
+          ipAddress: p.ip_address,
+          queueName: p.queue_name,
+          tonerCode: p.toner_code,
+          status: p.status,
+          notes: p.notes,
+        };
+      });
+      setPrinters(mappedPrinters);
+
+      // Mapeia os usuários para o formato do Frontend
+      const mappedUsers = usersData.map((u: any) => {
+        const siteObj = sitesData.find((s: any) => s.id === u.site_id);
+        return {
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          role: u.role,
+          site: siteObj ? siteObj.name : 'Todas',
+          siteId: u.site_id,
+          lastLogin: u.last_login
+        };
+      });
+      setUsers(mappedUsers);
+
+    } catch (error) {
+      console.error("Erro ao carregar dados do admin:", error);
+      showToast("Erro ao carregar dados.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+
   const filteredPrinters = useMemo(() => {
     return printers.filter(p => {
-      // Site Filter
-      if (user?.role !== UserRole.ADMIN && user?.site && p.site !== user.site) {
+      // Ajuste na verificação de Role
+      if (user?.role !== 'Admin' && user?.role !== UserRole.ADMIN && user?.siteId && p.siteId !== user.siteId) {
         return false;
       }
 
@@ -137,7 +194,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setSelectedIds(newSelected);
   };
 
-  // CRUD & Actions
+  // ==========================================
+  // CRUD PRINTERS
+  // ==========================================
   const handleOpenAddPrinter = () => {
     setEditingPrinter(null);
     setIsPrinterModalOpen(true);
@@ -148,27 +207,60 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setIsPrinterModalOpen(true);
   };
 
-  const handleDeletePrinterAction = (id: string) => {
+  const handleDeletePrinterAction = async (id: string) => {
     if (window.confirm('Tem certeza que deseja excluir esta impressora?')) {
-      onDeletePrinter(id);
-      const newSelected = new Set(selectedIds);
-      newSelected.delete(id);
-      setSelectedIds(newSelected);
-      showToast('Impressora removida com sucesso.');
+      try {
+        await apiFetch(`/printers/${id}`, 'DELETE');
+        
+        // Remove da lista local e da seleção sem precisar recarregar tudo
+        setPrinters(prev => prev.filter(p => p.id !== id));
+        const newSelected = new Set(selectedIds);
+        newSelected.delete(id);
+        setSelectedIds(newSelected);
+        
+        showToast('Impressora removida com sucesso.');
+      } catch (error: any) {
+        alert('Erro ao excluir: ' + error.message);
+      }
     }
   };
 
-  const handlePrinterFormSubmit = (data: Omit<Printer, 'id' | 'lastUpdated'>) => {
-    if (editingPrinter) {
-      onEditPrinter(editingPrinter.id, data);
-      showToast('Impressora atualizada com sucesso.');
-    } else {
-      onAddPrinter(data);
-      showToast('Impressora adicionada com sucesso.');
+  const handlePrinterFormSubmit = async (data: any) => {
+    // Como o Modal pode enviar camelCase, mapeamos para snake_case para a API
+    const apiData = {
+      name: data.name,
+      type: data.type,
+      model: data.model,
+      manufacturer: data.manufacturer,
+      serial_number: data.serialNumber,
+      asset_id: data.assetId,
+      site_id: data.siteId, // Importante: O Modal deve retornar o ID do site
+      location: data.location,
+      ip_address: data.ipAddress,
+      queue_name: data.queueName,
+      toner_code: data.tonerCode,
+      status: data.status,
+      notes: data.notes
+    };
+
+    try {
+      if (editingPrinter) {
+        await apiFetch(`/printers/${editingPrinter.id}`, 'PUT', apiData);
+        showToast('Impressora atualizada com sucesso.');
+      } else {
+        await apiFetch('/printers', 'POST', apiData);
+        showToast('Impressora adicionada com sucesso.');
+      }
+      setIsPrinterModalOpen(false);
+      loadData(); // Recarrega os dados para pegar o ID e site correto do banco
+    } catch (error: any) {
+      alert('Erro ao salvar impressora: ' + error.message);
     }
   };
 
-  // User Actions
+  // ==========================================
+  // CRUD USERS
+  // ==========================================
   const handleOpenAddUser = () => {
     setEditingUser(null);
     setIsUserModalOpen(true);
@@ -179,24 +271,45 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setIsUserModalOpen(true);
   };
 
-  const handleDeleteUserAction = (id: string) => {
+  const handleDeleteUserAction = async (id: string) => {
     if (window.confirm('Tem certeza que deseja excluir este usuário?')) {
-      onDeleteUser(id);
-      showToast('Usuário removido com sucesso.');
+      try {
+        await apiFetch(`/users/${id}`, 'DELETE');
+        setUsers(prev => prev.filter(u => u.id !== id));
+        showToast('Usuário removido com sucesso.');
+      } catch (error: any) {
+        alert('Erro ao excluir: ' + error.message);
+      }
     }
   };
 
-  const handleUserFormSubmit = (data: Omit<User, 'id' | 'lastLogin'>) => {
-    if (editingUser) {
-      onEditUser(editingUser.id, data);
-      showToast('Usuário atualizado com sucesso.');
-    } else {
-      onAddUser(data);
-      showToast('Usuário adicionado com sucesso.');
+  const handleUserFormSubmit = async (data: any) => {
+    const apiData = {
+      name: data.name,
+      email: data.email,
+      role: data.role,
+      site_id: data.siteId,
+      password: data.password // Backend cuidará do hash no POST ou ignorará no PUT se vazio
+    };
+
+    try {
+      if (editingUser) {
+        await apiFetch(`/users/${editingUser.id}`, 'PUT', apiData);
+        showToast('Usuário atualizado com sucesso.');
+      } else {
+        await apiFetch('/users', 'POST', apiData);
+        showToast('Usuário adicionado com sucesso.');
+      }
+      setIsUserModalOpen(false);
+      loadData();
+    } catch (error: any) {
+      alert('Erro ao salvar usuário: ' + error.message);
     }
   };
 
-  // Site Actions
+  // ==========================================
+  // CRUD SITES
+  // ==========================================
   const handleOpenAddSite = () => {
     setEditingSite(null);
     setIsSiteModalOpen(true);
@@ -207,27 +320,40 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setIsSiteModalOpen(true);
   };
 
-  const handleDeleteSiteAction = (id: string) => {
-    if (window.confirm('Tem certeza que deseja excluir esta unidade?')) {
-      onDeleteSite(id);
-      showToast('Unidade removida com sucesso.');
+  const handleDeleteSiteAction = async (id: string) => {
+    if (window.confirm('ATENÇÃO: Excluir uma unidade removerá todas as impressoras vinculadas a ela. Continuar?')) {
+      try {
+        await apiFetch(`/sites/${id}`, 'DELETE');
+        setSites(prev => prev.filter(s => s.id !== id));
+        // Recarregar impressoras já que podem ter sido apagadas no banco (CASCADE)
+        loadData();
+        showToast('Unidade removida com sucesso.');
+      } catch (error: any) {
+        alert('Erro ao excluir unidade: ' + error.message);
+      }
     }
   };
 
-  const handleSiteFormSubmit = (data: Omit<Site, 'id'>) => {
-    if (editingSite) {
-      onEditSite(editingSite.id, data);
-      showToast('Unidade atualizada com sucesso.');
-    } else {
-      onAddSite(data);
-      showToast('Unidade adicionada com sucesso.');
+  const handleSiteFormSubmit = async (data: Omit<Site, 'id'>) => {
+    try {
+      if (editingSite) {
+        await apiFetch(`/sites/${editingSite.id}`, 'PUT', data);
+        showToast('Unidade atualizada com sucesso.');
+      } else {
+        await apiFetch('/sites', 'POST', data);
+        showToast('Unidade adicionada com sucesso.');
+      }
+      setIsSiteModalOpen(false);
+      loadData();
+    } catch (error: any) {
+      alert('Erro ao salvar unidade: ' + error.message);
     }
   };
 
   // Access Control Helpers
-  const canManageUsers = user?.role === UserRole.ADMIN;
-  const canManageSites = user?.role === UserRole.ADMIN;
-  const canManagePrinters = user?.role === UserRole.ADMIN || user?.role === UserRole.ANALYST;
+  const canManageUsers = user?.role === 'Admin' || user?.role === UserRole.ADMIN;
+  const canManageSites = user?.role === 'Admin' || user?.role === UserRole.ADMIN;
+  const canManagePrinters = user?.role === 'Admin' || user?.role === UserRole.ADMIN || user?.role === 'Analista' || user?.role === UserRole.ANALYST;
 
   const toggleLabelSetting = (key: keyof LabelSettings) => {
     setLabelSettings(prev => ({ ...prev, [key]: !prev[key] }));
@@ -494,6 +620,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     printWindow.document.close();
   };
 
+  if (isLoading) {
+    return <div className="min-h-screen bg-slate-50 flex items-center justify-center">Carregando painel...</div>;
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 pb-12">
       <div className="bg-white border-b border-slate-200 sticky top-0 z-10">
@@ -629,8 +759,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 selectedIds.size > 0 
                   ? <span className="text-blue-600 font-medium">{selectedIds.size} selecionado(s)</span>
                   : `Total: ${filteredPrinters.length}`
-              ) : (
+              ) : activeTab === 'users' ? (
                 `Total: ${filteredUsers.length}`
+              ) : (
+                `Total: ${filteredSites.length}`
               )}
             </div>
           </div>
@@ -747,43 +879,43 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-200">
-                  {filteredUsers.map((user) => (
-                    <tr key={user.id} className="hover:bg-slate-50 transition-colors">
+                  {filteredUsers.map((u) => (
+                    <tr key={u.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-slate-900">{user.name}</div>
+                        <div className="text-sm font-medium text-slate-900">{u.name}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
-                        {user.email}
+                        {u.email}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex flex-col">
                           <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full w-fit ${
-                            user.role === UserRole.ADMIN 
+                            u.role === 'Admin' || u.role === UserRole.ADMIN 
                               ? 'bg-purple-100 text-purple-800' 
                               : 'bg-green-100 text-green-800'
                           }`}>
-                            {user.role}
+                            {u.role}
                           </span>
-                          {user.site && (
-                            <span className="text-xs text-slate-500 mt-1">{user.site}</span>
+                          {u.site && (
+                            <span className="text-xs text-slate-500 mt-1">{u.site}</span>
                           )}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
-                        {user.lastLogin ? new Date(user.lastLogin).toLocaleDateString() : '-'}
+                        {u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() : '-'}
                       </td>
                       {canManageUsers && (
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                           <div className="flex items-center justify-end space-x-2">
                             <button 
-                              onClick={() => handleOpenEditUser(user)}
+                              onClick={() => handleOpenEditUser(u)}
                               className="p-1.5 text-slate-400 hover:text-indigo-600 rounded-md hover:bg-indigo-50 transition"
                               title="Editar"
                             >
                               <Edit2 size={18} />
                             </button>
                             <button 
-                              onClick={() => handleDeleteUserAction(user.id)}
+                              onClick={() => handleDeleteUserAction(u.id)}
                               className="p-1.5 text-slate-400 hover:text-red-600 rounded-md hover:bg-red-50 transition"
                               title="Excluir"
                             >
@@ -882,7 +1014,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         initialData={editingSite}
       />
 
-      {/* Batch Print Modal */}
+      {/* Batch Print Modal (Restante do código mantido idêntico) */}
       {isBatchPrintModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col">

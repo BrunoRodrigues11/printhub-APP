@@ -1,25 +1,76 @@
-import React, { useState, useMemo } from 'react';
-import { Printer, PrinterStatus, StatCount, User, UserRole } from '../types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { PrinterStatus, StatCount, User, UserRole } from '../types';
 import { PrinterCard } from '../components/PrinterCard';
 import { Search, Filter, Activity, AlertOctagon, CheckCircle2, Settings, LogOut } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { apiFetch } from '../services/api'; // <-- Importando nosso novo módulo de API!
 
+// Removemos 'printers' das props, pois agora o próprio Dashboard vai buscar elas
 interface DashboardProps {
-  printers: Printer[];
   onLogout: () => void;
   user: User | null;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ printers, onLogout, user }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ onLogout, user }) => {
   const navigate = useNavigate();
+  
+  // Novos estados para guardar os dados da API
+  const [printers, setPrinters] = useState<any[]>([]);
+  const [sites, setSites] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Estados originais de filtro
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<PrinterStatus | 'ALL'>('ALL');
+
+  // ==========================================
+  // BUSCANDO OS DADOS REAIS DA API (NOVO)
+  // ==========================================
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setIsLoading(true);
+        // Promise.all permite buscar as impressoras e os sites ao mesmo tempo!
+        const [printersData, sitesData] = await Promise.all([
+          apiFetch('/printers'),
+          apiFetch('/sites')
+        ]);
+
+        setSites(sitesData);
+
+        // Mapeando os dados do banco (snake_case) para o formato do Frontend (camelCase)
+        const mappedPrinters = printersData.map((p: any) => {
+          // Procura o nome do site cruzando o site_id da impressora com a lista de sites
+          const siteObj = sitesData.find((s: any) => s.id === p.site_id);
+          
+          return {
+            ...p,
+            serialNumber: p.serial_number, 
+            ipAddress: p.ip_address,
+            site: siteObj ? siteObj.name : 'Sem Unidade', // Usado para agrupar na tela
+            siteId: p.site_id // Guardamos o ID original caso precise
+          };
+        });
+
+        setPrinters(mappedPrinters);
+      } catch (error) {
+        console.error("Erro ao buscar dados do Dashboard:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
 
   // 1. Filter by User Site (Security/Access Level)
   const visiblePrinters = useMemo(() => {
     if (!user) return [];
-    if (user.role === UserRole.ADMIN) return printers;
-    return printers.filter(p => p.site === user.site);
+    // Ajustado para olhar a 'role' vinda do backend ('Admin')
+    if (user.role === 'Admin' || user.role === UserRole.ADMIN) return printers;
+    
+    // Filtra pelo site_id que veio do token do usuário
+    return printers.filter(p => p.siteId === user.site_id);
   }, [printers, user]);
 
   // 2. Calculate Statistics based on visible printers
@@ -27,9 +78,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ printers, onLogout, user }
     return visiblePrinters.reduce(
       (acc, curr) => {
         acc.total++;
-        if (curr.status === PrinterStatus.ONLINE) acc.online++;
-        if (curr.status === PrinterStatus.OFFLINE) acc.offline++;
-        if (curr.status === PrinterStatus.MAINTENANCE) acc.maintenance++;
+        if (curr.status === 'Online' || curr.status === PrinterStatus.ONLINE) acc.online++;
+        if (curr.status === 'Offline' || curr.status === PrinterStatus.OFFLINE) acc.offline++;
+        if (curr.status === 'Manutenção' || curr.status === PrinterStatus.MAINTENANCE) acc.maintenance++;
         return acc;
       },
       { online: 0, offline: 0, maintenance: 0, total: 0 }
@@ -39,16 +90,25 @@ export const Dashboard: React.FC<DashboardProps> = ({ printers, onLogout, user }
   // 3. Filter by Search & Status
   const filteredPrinters = useMemo(() => {
     return visiblePrinters.filter((printer) => {
-      const matchesSearch = 
-        printer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        printer.serialNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        printer.location.toLowerCase().includes(searchTerm.toLowerCase());
+      const searchString = `${printer.name} ${printer.serialNumber} ${printer.location}`.toLowerCase();
+      const matchesSearch = searchString.includes(searchTerm.toLowerCase());
       
       const matchesStatus = statusFilter === 'ALL' || printer.status === statusFilter;
 
       return matchesSearch && matchesStatus;
     });
   }, [visiblePrinters, searchTerm, statusFilter]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-slate-500 font-medium">Carregando inventário...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 pb-12">
@@ -145,16 +205,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ printers, onLogout, user }
                   onChange={(e) => setStatusFilter(e.target.value as PrinterStatus | 'ALL')}
                 >
                   <option value="ALL">Todos os Status</option>
-                  <option value={PrinterStatus.ONLINE}>Online</option>
-                  <option value={PrinterStatus.OFFLINE}>Offline</option>
-                  <option value={PrinterStatus.MAINTENANCE}>Manutenção</option>
+                  <option value="Online">Online</option>
+                  <option value="Offline">Offline</option>
+                  <option value="Manutenção">Manutenção</option>
                 </select>
              </div>
           </div>
         </div>
 
         {/* Grid */}
-        {user?.role === UserRole.ADMIN ? (
+        {user?.role === 'Admin' || user?.role === UserRole.ADMIN ? (
           <div className="space-y-8">
             {Object.entries(
               filteredPrinters.reduce((acc, printer) => {
@@ -162,7 +222,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ printers, onLogout, user }
                 if (!acc[site]) acc[site] = [];
                 acc[site].push(printer);
                 return acc;
-              }, {} as Record<string, Printer[]>)
+              }, {} as Record<string, any[]>)
             ).map(([site, sitePrinters]) => (
               <div key={site} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="bg-slate-50 px-6 py-4 border-b border-slate-200">
@@ -191,7 +251,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ printers, onLogout, user }
         )}
 
         {filteredPrinters.length === 0 && (
-          <div className="text-center py-20">
+          <div className="text-center py-20 bg-white rounded-xl border border-slate-200">
             <p className="text-slate-500 text-lg">Nenhuma impressora encontrada com os filtros atuais.</p>
           </div>
         )}
@@ -200,7 +260,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ printers, onLogout, user }
   );
 };
 
-// Helper Icon for the total card to avoid circular dependency
+// Helper Icon for the total card
 const PrinterCardIcon = ({ className }: { className?: string }) => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
 );
