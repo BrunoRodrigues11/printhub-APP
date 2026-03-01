@@ -1,4 +1,6 @@
-const BASE_URL = 'http://localhost:3001/api';
+// Garante que não venha undefined, ou usa localhost como último recurso
+// @ts-ignore
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 export async function apiFetch(endpoint: string, method: string = 'GET', body: any = null) {
   // 1. Tenta pegar o token que foi salvo no localStorage durante o login
